@@ -1,0 +1,39 @@
+name: 每日板桥天气
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    inputs:
+      city:
+        description: '城市'
+        required: false
+        default: 'Itabashi,JP'
+
+jobs:
+  get-weather:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: 获取天气数据
+      id: fetch
+      env:
+        CITY: ${{ inputs.city || 'Itabashi,JP' }}
+      run: |
+        curl -s "https://api.openweathermap.org/data/2.5/forecast?q=$CITY&appid=${{ secrets.WEATHER_API_KEY }}" | \
+        jq '.list[0] | {temp: ((.main.temp - 273.15 | round | tostring) + "℃"), desc: .weather[0].description, pop: ((.pop * 100 | floor | tostring) + "%")}' > weather.json
+        cat weather.json
+        echo "::notice title=今日天气:: $(cat weather.json)"
+    - name: 创建 Issue
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const weather = JSON.parse(fs.readFileSync('weather.json'));
+          const city = process.env.CITY || '板桥';
+          await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `${city} 天气报告 (${new Date().toLocaleDateString('ja-JP')})`,
+            body: `🌤️ **温度**: ${weather.temp}\n☁️ **描述**: ${weather.desc}\n🌧️ **降水概率**: ${weather.pop}`
+          });
